@@ -425,3 +425,56 @@ svm.model <- svm(D.difficulty ~ ., data=trainset[,5:33], cost=100, gamma=1)
 svm.pred <- predict(svm.model, testset[,6:33])
 ## compute svm confusion matrix
 table(pred = svm.pred, true = testset$D.difficulty)
+
+
+##########################################
+# Ordered Logistic Regression using LD's #
+##########################################
+m <- polr(lda_data$y ~ ., data=lda_data, Hess=TRUE)
+summary(m)
+(ctable <- coef(summary(m)))
+p <- pnorm(abs(ctable[, "t value"]), lower.tail=FALSE) * 2
+(ctable <- cbind(ctable, "p vlaue" = p))
+(ci <- confint(m))
+# neither of the LD's CI crosses 0, so the parameter estimate is statistically 
+# significant
+confint.default(m)
+# For a one unit increase in LD1, we expect a 0.16 increase in the expected
+# value of difficulty on the log odds scale, given LD2 is held constant.
+# For a one unit increase in LD2, we expect a 0.05 decrease in the expected
+# value of difficulty on the log odds scale, given LD1 is held constant.
+## odds ratios
+exp(coef(m))
+## OR and CI
+exp(cbind(OR = coef(m), ci))
+# For a one unit increase in LD1, the odds of "1" difficulty versus "2", "3", 
+# "4", or "5" combined are 1.17 times greater, given that LD2 is held constant.
+# Likewise, the odds "1" difficulty or "2" or "3" or "4" versus "5" difficulty
+# is 1.17 times greater, given LD2 is held constant. 
+
+
+####################################################
+# Ordered Logistic Regression using normalized Q's #
+####################################################
+m <- polr(as.factor(D_norm$D.difficulty) ~ ., data=D_norm[,5:33], Hess=TRUE)
+summary(m)
+(ctable <- coef(summary(m)))
+p <- pnorm(abs(ctable[, "t value"]), lower.tail=FALSE) * 2
+(ctable <- cbind(ctable, "p vlaue" = p))
+(ci <- confint(m))
+# neither of the LD's CI crosses 0, so the parameter estimate is statistically 
+# significant
+confint.default(m)
+# For a one unit increase in LD1, we expect a 0.16 increase in the expected
+# value of difficulty on the log odds scale, given LD2 is held constant.
+# For a one unit increase in LD2, we expect a 0.05 decrease in the expected
+# value of difficulty on the log odds scale, given LD1 is held constant.
+## odds ratios
+exp(coef(m))
+## OR and CI
+exp(cbind(OR = coef(m), ci))
+# For a one unit increase in LD1, the odds of "1" difficulty versus "2", "3", 
+# "4", or "5" combined are 1.17 times greater, given that LD2 is held constant.
+# Likewise, the odds "1" difficulty or "2" or "3" or "4" versus "5" difficulty
+# is 1.17 times greater, given LD2 is held constant. 
+
