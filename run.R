@@ -28,19 +28,29 @@
 # Attribute Information:
 # instr: Instructor's identifier; values taken from {1,2,3} 
 # class: Course code (descriptor); values taken from {1-13} 
-# repeat: Number of times the student is taking this course; values taken from {0,1,2,3,...} 
+# nb.repeat: Number of times the student is taking this course; values taken from 
+#         {0,1,2,3,...} 
 # attendance: Code of the level of attendance; values from {0, 1, 2, 3, 4} 
-# difficulty: Level of difficulty of the course as perceived by the student; values taken from {1,2,3,4,5} 
-# Q1: The semester course content, teaching method and evaluation system were provided at the start. 
-# Q2: The course aims and objectives were clearly stated at the beginning of the period. 
+# difficulty: Level of difficulty of the course as perceived by the student; 
+#             values taken from {1,2,3,4,5} 
+# Q1: The semester course content, teaching method and evaluation system were 
+#     provided at the start. 
+# Q2: The course aims and objectives were clearly stated at the beginning of 
+#     the period. 
 # Q3: The course was worth the amount of credit assigned to it. 
-# Q4: The course was taught according to the syllabus announced on the first day of class. 
-# Q5:	The class discussions, homework assignments, applications and studies were satisfactory. 
+# Q4: The course was taught according to the syllabus announced on the first 
+#     day of class. 
+# Q5:	The class discussions, homework assignments, applications and studies 
+#     were satisfactory. 
 # Q6: The textbook and other courses resources were sufficient and up to date.	
-# Q7: The course allowed field work, applications, laboratory, discussion and other studies. 
-# Q8: The quizzes, assignments, projects and exams contributed to helping the learning.	
-# Q9: I greatly enjoyed the class and was eager to actively participate during the lectures. 
-# Q10: My initial expectations about the course were met at the end of the period or year. 
+# Q7: The course allowed field work, applications, laboratory, discussion and 
+#     other studies. 
+# Q8: The quizzes, assignments, projects and exams contributed to helping the 
+#     learning.	
+# Q9: I greatly enjoyed the class and was eager to actively participate during 
+#     the lectures. 
+# Q10: My initial expectations about the course were met at the end of the 
+#      period or year. 
 # Q11: The course was relevant and beneficial to my professional development. 
 # Q12: The course helped me look at life and the world with a new perspective. 
 # Q13: The Instructor's knowledge was relevant and up to date. 
@@ -50,17 +60,26 @@
 # Q17: The Instructor arrived on time for classes. 
 # Q18: The Instructor has a smooth and easy to follow delivery/speech. 
 # Q19: The Instructor made effective use of class hours. 
-# Q20: The Instructor explained the course and was eager to be helpful to students. 
+# Q20: The Instructor explained the course and was eager to be helpful to 
+#      students. 
 # Q21: The Instructor demonstrated a positive approach to students. 
-# Q22: The Instructor was open and respectful of the views of students about the course. 
+# Q22: The Instructor was open and respectful of the views of students about 
+#      the course. 
 # Q23: The Instructor encouraged participation in the course. 
-# Q24: The Instructor gave relevant homework assignments/projects, and helped/guided students. 
-# Q25: The Instructor responded to questions about the course inside and outside of the course. 
-# Q26: The Instructor's evaluation system (midterm and final questions, projects, assignments, etc.) effectively measured the course objectives. 
-# Q27: The Instructor provided solutions to exams and discussed them with students. 
+# Q24: The Instructor gave relevant homework assignments/projects, and 
+#      helped/guided students. 
+# Q25: The Instructor responded to questions about the course inside and 
+#      outside of the course. 
+# Q26: The Instructor's evaluation system (midterm and final questions, 
+#      projects, assignments, etc.) effectively measured the course objectives. 
+# Q27: The Instructor provided solutions to exams and discussed them with 
+#      students. 
 # Q28: The Instructor treated all students in a right and objective manner. 
 # 
 # Q1-Q28 are all Likert-type, meaning that the values are taken from {1,2,3,4,5}
+# Therefore, I will convert the ordinal scale to a dichotomous variable and use 
+# logistic regression to assess the impact of other variables on an ordinal 
+# scale variable, difficulty.
 ################################################################################
 
 # setup
@@ -70,12 +89,6 @@ rm(list = grep("^current_date", ls(), value = TRUE, invert = TRUE))
 DATA_DIR <- './data'
 IMAGES_DIR <- './images'
 OUTPUT_DIR <- './output'
-
-make_dir <- function(d) {
-  if (file.exists(d)) unlink(d, recursive=TRUE, force=TRUE)
-  dir.create(d)
-}
-lapply(c(IMAGES_DIR, OUTPUT_DIR),make_dir)
 
 ## function that concatenates strings (useful for directory paths)
 concat <- function(x1,x2) {
@@ -100,7 +113,7 @@ load_package <- function(x) {
 # if not, download it and save it to the data directory
 csv_file <- concat(DATA_DIR, '/turkiye-student-evaluation_R_Specific.csv')
 if (file.exists(csv_file)) {
-  data <- read.csv(csv_file)
+  D <- read.csv(csv_file)
 } else {
   URL <- "http://archive.ics.uci.edu/ml/machine-learning-databases/00262/turkiye-student-evaluation_R_Specific.csv"
   current_date <- date()
@@ -108,40 +121,71 @@ if (file.exists(csv_file)) {
                 destfile=csv_file, 
                 quiet=TRUE,
                 mode = "wb")
-  data <- read.csv(csv_file)
+  D <- read.csv(csv_file)
 }
-
+rm(csv_file)
 
 # how many are n/a?
-sum(is.na(data))
-head(which(is.na(data)))
-# how many are NULL?
-sum(is.null(data))
-# how many are blank?
-length(which(data == ""))
-str(data)
-length(which(!complete.cases(data)))
+sum(is.na(D))
+head(which(is.na(D)))
+sum(is.null(D))
+length(which(D == ""))
+length(which(!complete.cases(D)))
+str(D)
 
-# need to scale the Likert-type data from Q1-Q28
-# in order to use it for anything useful
-x <- data[, 6:33]
-data[, 6:33] <- scale(x, 
-                      center=FALSE, 
-                      scale=apply(x,2, sd, na.rm=TRUE))
-rm(x)
-# class variable is difficulty, on a scale of 1 to 5
-data <- data.frame(difficulty=data[,5], data[,6:33])
-data$difficulty <- as.factor(data$difficulty)
-head(data)
-str(data)
+# make factors from instr, class, and attendance
+D[,1] <- as.factor(D[,1])
+D[,2] <- as.factor(D[,2])
+D[,4] <- as.factor(D[,4])
+
+p <- length(D[,1])
+# how many of each class of difficulty?
+load_package('dplyr')
+grouped <- group_by(D[,6:33],D$difficulty)
+grouped_summary <- data.frame(summarise(grouped, n=n()))
+grouped_summary$pct <- grouped_summary$n / p
+print(grouped_summary)
+rm(p)
+rm(grouped_summary)
+
+# what is the distribution each variable?
+lapply(D, table)
+
+# each question, cross-tabbed with difficulty
+ft <- function(var) {
+  ftable(xtabs(~D$difficulty + var, data=D))
+}
+lapply(D[,6:33], ft)
+rm(ft)
+
+# check for normalcy of difficulty distribution
+x <- D$difficulty
+h<-hist(x, breaks=10, col="red", xlab="Likert-Type Difficulty Score", 
+        main="Histogram with Normal Curve") 
+xfit<-seq(min(x),max(x),length=40) 
+yfit<-dnorm(xfit,mean=mean(x),sd=sd(x)) 
+yfit <- yfit*diff(h$mids[1:2])*length(x) 
+lines(xfit, yfit, col="blue", lwd=2)
+rm(x, h, xfit, yfit)
+
+## The Likert scores are  not normally distributed, so
+# use clusterSim package to normalize the data
+load_package('clusterSim')
+source('ConvertAndBackup.R')
+p <- length(D_norm[,1])
+grouped_norm <- group_by(D_norm[,6:33],D_norm$D.difficulty)
+grouped_norm_summary <- data.frame(summarise(grouped_norm, n=n()))
+grouped_norm_summary$pct <- grouped_norm_summary$n / p
+grouped_norm_summary
+rm(p)
+rm(grouped_norm_summary)
 
 ################################
 # Principal Component Analysis #
 ################################
-# ***CAN IT BE USED?***
-pca <- prcomp(data[,2:29])
+pca <- prcomp(D_norm[,6:33])
 summary(pca)
-# between four and five PC's make-up 90% of the cumulative variance
+# between 5 and 6 PC's make-up 90% of the cumulative variance
 
 # variance charts
 # from http://rstudio-pubs-static.s3.amazonaws.com/27823_dbc155ba66444eae9eb0a6bacb36824f.html
@@ -161,7 +205,7 @@ pcaCharts <- function(x) {
        ylim=c(0,1), type='b',
        main="Cumulative Proportion of Variance Explained")
   abline(h=0.9,col="red")
-  cor_eigs <- eigen(cor(data[,2:29]))
+  cor_eigs <- eigen(cor(D_norm[,6:33]))
   plot(cor_eigs$values, 
        xlab="Principal Component",
        ylab="Eigenvalues",  
@@ -175,8 +219,7 @@ png(concat(IMAGES_DIR,'/variance graphs.png'),
 pcaCharts(pca)
 dev.off()
 # scree plot of eigenvalues suggests two PC's should work
-rm(pca_data)
-pca_data <- data.frame(difficulty=as.factor(data[,1]), PC1=pca$x[,1], PC2=pca$x[,2])
+pca_data <- data.frame(difficulty=as.factor(D_norm$D.difficulty), PC1=pca$x[,1], PC2=pca$x[,2])
 
 ################################
 # Linear Discriminant Analysis #
@@ -195,13 +238,13 @@ load_package("DiscriMiner")
 t(groupMeans(variables=pca_data[,2:3], group=pca_data[,1]))
 t(groupStds(variables=pca_data[,2:3], group=pca_data[,1]))
 # test correlations
-cor.test(data[,2],data[,3])
+cor.test(pca_data[,2],pca_data[,3])
 
 # compute d-dimensional scatter matrices
-betweenCov(variables=data[,2:3], group=data[,1], div_by_n = FALSE)
-withinCov(variables=data[,2:3], group=data[,1])
-(Sb <- betweenSS(variables=data[,2:3], group=data[,1]))
-(Sw <- withinSS(variables=data[,2:3], group=data[,1]))
+betweenCov(variables=pca_data[,2:3], group=pca_data[,1], div_by_n = FALSE)
+withinCov(variables=pca_data[,2:3], group=pca_data[,1])
+(Sb <- betweenSS(variables=pca_data[,2:3], group=pca_data[,1]))
+(Sw <- withinSS(variables=pca_data[,2:3], group=pca_data[,1]))
 
 # calculate eigenvalues and eigenvectors
 (eigenvalues <- eigen(solve(Sw) %*% Sb)$values)
@@ -230,14 +273,14 @@ dev.off()
 
 # how many of each class?
 load_package('dplyr')
-grouped_by_job <- group_by(pca_data[,2:3],pca_data[,1])
-summarise(grouped_by_job, n=n())
+grouped_by_difficulty <- group_by(pca_data[,2:3],pca_data$difficulty)
+summarise(grouped_by_difficulty, n=n())
 
 # Confusion Matrix:
 confusion_matrix <- table(plda$class, pca_data$difficulty)
 write.table(confusion_matrix, 
             file=concat(OUTPUT_DIR,'/confusion matrix.csv'), sep=",")
-# estimate the percentage of faculty rankings that will be mis-classified
+# estimate the percentage of difficulty that will be mis-classified
 round(1 - diag(prop.table(confusion_matrix)), 4)
 # total percent incorrect
 round(1 - sum(diag(prop.table(confusion_matrix))), 4)
@@ -291,21 +334,21 @@ partimat(class ~ y + x,
 # K-Means Clustering Analysis #
 ###############################
 # Determine number of clusters based on weighted sum of squares
-wss <- (nrow(data)-1)*sum(apply(data[,2:29],2,var))
-for (i in 2:15) wss[i] <- sum(kmeans(data[,2:29], centers=i)$withinss)
+wss <- (nrow(D_norm)-1)*sum(apply(D_norm[,6:33],2,var))
+for (i in 2:15) wss[i] <- sum(kmeans(D_norm[,6:33], centers=i)$withinss)
 png(concat(IMAGES_DIR,'/wss to pick number of clusters.png'), 
     width = 1024, height = 1024)
 plot(1:15, wss, type="b", xlab="Number of Clusters",
      ylab="Within groups sum of squares")
 dev.off()
 # K-Means Cluster Analysis for k=5 on original data
-fit5 <- kmeans(data[,2:29], 5) # 5 cluster solution
+fit5 <- kmeans(D_norm[,6:33], 5) # 5 cluster solution
 
 # cluster plot with ellipses
 load_package("cluster")
 png(concat(IMAGES_DIR,'/cluster plot1.png'), 
     width = 1024, height = 1024)
-clusplot(data[,2:29], 
+clusplot(D_norm[,6:33], 
          fit5$cluster, 
          color=TRUE, 
          shade=TRUE, 
@@ -318,17 +361,17 @@ dev.off()
 load_package("fpc")
 png(concat(IMAGES_DIR,'/cluster plot2.png'), 
     width = 1024, height = 1024)
-plotcluster(data[,2:29], 
+plotcluster(D_norm[,6:33], 
             method="dc",
             fit5$cluster,
             main="Cluster Plot with k=5")
 dev.off()
 
 # Colors represent clusters and numbers represent y's
-clvecd <- as.integer(data[,1])
+clvecd <- as.integer(D_norm$D.difficulty)
 png(concat(IMAGES_DIR,'/cluster plot3.png'), 
     width = 1024, height = 1024)
-plotcluster(x=data[,2:29], 
+plotcluster(x=D_norm[,6:33], 
             clvecd=fit5$cluster,
             method="dc",
             clnum=clvecd,
@@ -337,7 +380,7 @@ dev.off()
 # Colors represent y's and numbers represent clusters
 png(concat(IMAGES_DIR,'/cluster plot4.png'), 
     width = 1024, height = 1024)
-plotcluster(x=data[,2:29], 
+plotcluster(x=D_norm[,6:33], 
             clvecd=clvecd,
             method="dc",
             clnum=fit5$cluster,
@@ -347,7 +390,7 @@ dev.off()
 ####################################
 # Hierarchical Clustering Analysis #
 ####################################
-d <- dist(data[,2:29], method="euclidean")
+d <- dist(D_norm[,6:33], method="euclidean")
 # Option "ward.D2" implements Ward's (1963) clustering criterion 
 # (Murtagh and Legendre 2014). With the latter, the dissimilarities 
 # are squared before cluster updating.
@@ -370,21 +413,15 @@ dev.off()
 # Support Vector Machines          #
 ####################################
 ## split data into a train and test set
-index <- 1:nrow(data)
+index <- 1:nrow(D_norm)
 set.seed(12345789)
 testindex <- sample(index, trunc(length(index)/3))
-testset <- data[testindex,]
-trainset <- data[-testindex,]
+testset <- D_norm[testindex,]
+trainset <- D_norm[-testindex,]
 
 ## svm
 load_package("e1071")
-svm.model <- svm(difficulty ~ ., data=trainset, cost=100, gamma=1)
-svm.pred <- predict(svm.model, testset[,-1])
-## rpart
-load_package("rpart")
-rpart.model <- rpart(difficulty ~ ., data=trainset)
-rpart.pred <- predict(rpart.model, testset[,-1], type="class")
+svm.model <- svm(D.difficulty ~ ., data=trainset[,5:33], cost=100, gamma=1)
+svm.pred <- predict(svm.model, testset[,6:33])
 ## compute svm confusion matrix
-table(pred = svm.pred, true = testset[,1])
-## compute rpart confusion matrix
-table(pred = rpart.pred, true = testset[,1])
+table(pred = svm.pred, true = testset$D.difficulty)
