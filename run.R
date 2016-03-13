@@ -201,7 +201,21 @@ rm(ft)
 citation(package = "clusterSim", lib.loc = NULL, auto = NULL)
 load_package('clusterSim')
 source('ConvertAndBackup.R')
-
+# look at correlations
+write.csv(cor(D_norm[,6:33]), file=concat(OUTPUT_DIR, '/correlations.csv'))
+load_package('corrplot')
+col1 <- colorRampPalette(c("#7F0000", "red", "#FF7F00", "yellow", "white", "cyan", 
+                           "#007FFF", "blue", "#00007F"))
+col2 <- colorRampPalette(c("#67001F", "#B2182B", "#D6604D", "#F4A582", "#FDDBC7", 
+                           "#FFFFFF", "#D1E5F0", "#92C5DE", "#4393C3", "#2166AC", "#053061"))
+col3 <- colorRampPalette(c("red", "white", "blue"))
+col4 <- colorRampPalette(c("#7F0000", "red", "#FF7F00", "yellow", "#7FFF7F", 
+                           "cyan", "#007FFF", "blue", "#00007F"))
+wb <- c("white", "black")
+png(concat(IMAGES_DIR,'/correlations 1.png'), 
+    width = 1024, height = 1024)
+corrplot(cor(D_norm[,6:33]), order="hclust", addrect = 5, col=col4(10))
+dev.off()
 
 ################################
 # Principal Component Analysis #
@@ -271,42 +285,6 @@ exp(cbind(OR = coef(m), ci))
 
 # make predictions
 predicted <- predict(m)
-
-# Confusion Matrix:
-confusion_matrix <- table(D$difficulty,predicted)
-write.table(confusion_matrix, 
-            file=concat(OUTPUT_DIR,'/confusion matrix.csv'), sep=",")
-# estimate the percentage of difficulty that will be mis-classified
-round(1 - diag(prop.table(confusion_matrix)), 4)
-# total percent incorrect
-round(1 - sum(diag(prop.table(confusion_matrix))), 4)
-
-# Calculate Wilk's Lambda
-# It also gives us the group centroids
-load_package('rrcov')
-Wilks.test(D_norm[,6:33], grouping=D_norm$D.difficulty)
-
-# plot the LDA projection
-prop.lda = lda$svd^2/sum(lda$svd^2)
-lda_data <- data.frame(y = pca_data$difficulty, lda = plda$x)
-lda_data <- lda_data[,1:3] # drop unnecessary LD's
-class <- lda_data$y
-x <- plda$x[,1]
-y <- plda$x[,2]
-df <- data.frame(class, x, y)
-centroids <- aggregate(cbind(x,y)~class,df,mean)
-prop.lda = lda$svd^2/sum(lda$svd^2)
-load_package("ggplot2")
-png(concat(IMAGES_DIR,'/lda plot.png'), 
-    width = 1024, height = 1024)
-ggplot(df,aes(x,y,color=factor(class),shape=factor(class))) +
-  geom_point(size=2.5) + 
-  geom_point(data=centroids,size=5) +
-  labs(x = paste("LD1 (", percent(prop.lda[1]), ")", sep=""),
-       y = paste("LD2 (", percent(prop.lda[2]), ")", sep="")) +
-  ggtitle("LDA Projection Data") + 
-  theme(plot.title = element_text(lineheight=.8, face="bold"))
-dev.off()
 
 # graphical interpretation
 load_package('Hmisc')
@@ -395,6 +373,8 @@ d <- dist(D_norm[,6:33], method="euclidean")
 # (Murtagh and Legendre 2014). With the latter, the dissimilarities 
 # are squared before cluster updating.
 fit <- hclust(d, method="ward.D2")
+groups <- cutree(fit, k=5)
+
 load_package("sparcl")
 png(concat(IMAGES_DIR,'/dendrogram - difficulty.png'), 
     width = 1024, height = 512)
@@ -429,5 +409,108 @@ ColorDendrogram(fit,
                 sub = "with Ward D2 Clustering",
                 branchlength = 50)
 # draw red borders around the 3 clusters 
-rect.hclust(fit, k=3, border="red")
+rect.hclust(fit, k=5, border="red")
 dev.off()
+
+png(concat(IMAGES_DIR,'/dendrogram - Q14.png'), 
+    width = 1024, height = 512)
+ColorDendrogram(fit, 
+                y = D$Q14, 
+                main = "Hierarchical Clustering (Colors are Q14)", 
+                xlab = "Euclidean Distance",
+                sub = "with Ward D2 Clustering",
+                branchlength = 50)
+# draw red borders around the 3 clusters 
+rect.hclust(fit, k=5, border="red")
+dev.off()
+
+#######
+# PAM #
+#######
+p <- pam(x=D_norm[,6:33], diss=FALSE, k=5)
+summary(p)
+plot(p)
+
+##########
+# DBSCAN #
+##########
+dbs <- dbscan(D_norm[,6:33], eps=0.5)
+
+###############
+# Model-Based #
+###############
+load_package('mclust')
+mc <- Mclust(D_norm[,6:33])
+mc2 <- MclustDA(D_norm[,6:33], D_norm$D.difficulty)
+
+
+par(mfrow=c(2,2))
+plot(pca_data$PC1, pca_data$PC2, col=groups, xlab="PC1", ylab="PC2", main="Hierarchical Clustering")
+plot(pca_data$PC1, pca_data$PC2, col=fit5$cluster, xlab="PC1", ylab="PC2", main="K-Means Clustering")
+plot(pca_data$PC1, pca_data$PC2, col=p$clustering, xlab="PC1", ylab="PC2", main="PAM Clustering")
+plot(pca_data$PC1, pca_data$PC2, col=mc$classification, xlab="PC1", ylab="PC2", main="Model-Based Clustering")
+par(mfrow=c(1,1))
+
+
+#######
+# CCA #
+#######
+questions <- D_norm[,6:33]
+behavior <- D_norm[,3:5]
+behavior$D.attendance <- as.numeric(behavior$D.attendance)
+str(behavior)
+load_package('GGally')
+load_package('CCA')
+corrs <- matcor(behavior, questions)
+img.matcor(corrs, type=3)
+cc1 <- cc(behavior, questions)
+# Cannonical Correlations
+cc1$cor
+# Raw Canonical Coefficients
+cc1$xcoef
+cc1$ycoef
+# plot the canonical correlations of the first 3 dimensions
+plot(cc1$cor, xlab = "Dimension", 
+     ylab = "Canonical Correlations",
+     ylim = c(0,1),
+     type="b")
+# plot the values and units on the first 2 canonical variates
+plt.cc(cc1, var.label=TRUE)
+cc1$scores
+cc2 <- comput(behavior, questions, cc1)
+# Canonical Loadings
+cc2$corr.X.xscores
+cc2$corr.Y.xscores
+cc2$corr.X.yscores
+cc2$corr.Y.yscores
+# Test the null hypothesis that the canonical correlations are all equal to zero,
+# that the second and third canonical correlations are equal to zero, and that 
+# the third canonical correlation is equal to zero. 
+ev <- (1 - cc1$cor^2)
+n <- dim(behavior)[1]
+p <- length(behavior)
+q <- length(questions)
+k <- min(p,q)
+m <- n - 3/2 - (p + q) / 2
+w <- rev(cumprod(rev(ev)))
+# initialize
+d1 <- d2 <- f <- vector("numeric", k)
+for (i in 1:k) {
+  s <- sqrt((p^2 * q^2 - 4)/(p^2 + q^2- 5))
+  si <- 1/s
+  d1[i] <- p * q
+  d2[i] <- m * s - p * q/2 + 1
+  r <- (1 - w[i]^si)/w[i]^si
+  f[i] <- r * d2[i]/d1[i]
+  p <- p - 1
+  q <- q - 1
+}
+pv <- pf(f, d1, d2, lower.tail = FALSE)
+(dmat <- cbind(WilksL = w, F = f, df1 = d1, df2 = d2, p = pv))
+# calculate the standardized canonical coefficients diagonal matrix of sd's
+(s1 <- diag(sqrt(diag(cov(behavior)))))
+(s2 <- diag(sqrt(diag(cov(questions)))))
+write.csv(s1 %*% cc1$xcoef, file=concat(OUTPUT_DIR, '/std canonical coefficients - behavior.csv'))
+write.csv(s2 %*% cc1$ycoef, file=concat(OUTPUT_DIR, '/std canonical coefficients - questions.csv'))
+
+
