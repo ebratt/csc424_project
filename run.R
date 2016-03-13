@@ -133,23 +133,61 @@ length(which(D == ""))
 length(which(!complete.cases(D)))
 str(D)
 
+
 # make factors from instr, class, and attendance
 D[,1] <- as.factor(D[,1])
 D[,2] <- as.factor(D[,2])
 D[,4] <- as.factor(D[,4])
 
-p <- length(D[,1])
-# how many of each class of difficulty?
+# group data by instructor
 load_package('dplyr')
-grouped <- group_by(D[,6:33],D$difficulty)
+p <- length(D[,1])
+grouped <- group_by(D, as.factor(D$instr))
 grouped_summary <- data.frame(summarise(grouped, n=n()))
 grouped_summary$pct <- grouped_summary$n / p
 print(grouped_summary)
 rm(p)
 rm(grouped_summary)
+hist(as.numeric(D$instr), breaks=10, col="red", xlab="ID", main="Instructor Histogram") 
 
-# what is the distribution each variable?
-lapply(D, table)
+# group data by difficulty
+p <- length(D[,1])
+grouped <- group_by(D, as.factor(D$difficulty))
+grouped_summary <- data.frame(summarise(grouped, n=n()))
+grouped_summary$pct <- grouped_summary$n / p
+print(grouped_summary)
+rm(p)
+rm(grouped_summary)
+hist(D$difficulty, breaks=10, col="red", xlab="Score", main="Difficulty Histogram") 
+
+# difficulty, cross-tabbed with instructor
+ft <- function(var) {
+  ftable(xtabs(~D$instr + var, data=D))
+}
+lapply(D[,2:5], ft)
+rm(ft)
+
+# group data by class
+p <- length(D[,1])
+grouped <- group_by(D, as.factor(D$class))
+grouped_summary <- data.frame(summarise(grouped, n=n()))
+grouped_summary$pct <- grouped_summary$n / p
+print(grouped_summary)
+rm(p)
+rm(grouped)
+rm(grouped_summary)
+hist(as.numeric(D$class), breaks=10, col="red", xlab="ID", main="Class Histogram") 
+
+# difficulty, cross-tabbed with class
+ft <- function(var) {
+  ftable(xtabs(~D$class + var, data=D))
+}
+lapply(D[,2:5], ft)
+rm(ft)
+write.csv(ftable(xtabs(~D$class + D$difficulty, data=D)), file=concat(OUTPUT_DIR, '/difficulty by class.csv'))
+
+# instructor, cross-tabbed with class
+write.csv(ftable(xtabs(~D$class + D$instr, data=D)), file=concat(OUTPUT_DIR, '/instructor by class.csv'))
 
 # each question, cross-tabbed with difficulty
 ft <- function(var) {
@@ -158,27 +196,12 @@ ft <- function(var) {
 lapply(D[,6:33], ft)
 rm(ft)
 
-# check for normalcy of difficulty distribution
-x <- D$difficulty
-h<-hist(x, breaks=10, col="red", xlab="Likert-Type Difficulty Score", 
-        main="Histogram with Normal Curve") 
-xfit<-seq(min(x),max(x),length=40) 
-yfit<-dnorm(xfit,mean=mean(x),sd=sd(x)) 
-yfit <- yfit*diff(h$mids[1:2])*length(x) 
-lines(xfit, yfit, col="blue", lwd=2)
-rm(x, h, xfit, yfit)
-
-## The Likert scores are  not normally distributed, so
-# use clusterSim package to normalize the data
+## Use clusterSim package to normalize the question data
+# store the data in D_norm
+citation(package = "clusterSim", lib.loc = NULL, auto = NULL)
 load_package('clusterSim')
 source('ConvertAndBackup.R')
-p <- length(D_norm[,1])
-grouped_norm <- group_by(D_norm[,6:33],D_norm$D.difficulty)
-grouped_norm_summary <- data.frame(summarise(grouped_norm, n=n()))
-grouped_norm_summary$pct <- grouped_norm_summary$n / p
-grouped_norm_summary
-rm(p)
-rm(grouped_norm_summary)
+
 
 ################################
 # Principal Component Analysis #
@@ -221,84 +244,47 @@ dev.off()
 # scree plot of eigenvalues suggests two PC's should work
 pca_data <- data.frame(difficulty=as.factor(D_norm$D.difficulty), PC1=pca$x[,1], PC2=pca$x[,2])
 
-################################
-# Linear Discriminant Analysis #
-################################
-# test for homogeneity of covariance matrices
-log(det(x=cov(as.matrix(pca_data[pca_data[,1]=="1",2:3]))))
-log(det(x=cov(as.matrix(pca_data[pca_data[,1]=="2",2:3]))))
-log(det(x=cov(as.matrix(pca_data[pca_data[,1]=="3",2:3]))))
-log(det(x=cov(as.matrix(pca_data[pca_data[,1]=="4",2:3]))))
-log(det(x=cov(as.matrix(pca_data[pca_data[,1]=="5",2:3]))))
-source("BoxMTest.R")
-BoxMTest(pca_data[2:3],pca_data$difficulty)
-
-# compute d-dimesnional mean vectors
-load_package("DiscriMiner")
-t(groupMeans(variables=pca_data[,2:3], group=pca_data[,1]))
-t(groupStds(variables=pca_data[,2:3], group=pca_data[,1]))
-# test correlations
-cor.test(pca_data[,2],pca_data[,3])
-
-# compute d-dimensional scatter matrices
-betweenCov(variables=pca_data[,2:3], group=pca_data[,1], div_by_n = FALSE)
-withinCov(variables=pca_data[,2:3], group=pca_data[,1])
-(Sb <- betweenSS(variables=pca_data[,2:3], group=pca_data[,1]))
-(Sw <- withinSS(variables=pca_data[,2:3], group=pca_data[,1]))
-
-# calculate eigenvalues and eigenvectors
-(eigenvalues <- eigen(solve(Sw) %*% Sb)$values)
-
-# Select eigenvalues
-plot(eigenvalues, type="b")
-
-# transform samples onto new subspace provided by LDA
-load_package("MASS")
-lda <- lda(formula=pca_data$difficulty ~ ., data=pca_data)
-ld_coefs <- lda$scaling
-write.table(round(ld_coefs,3), file=concat(OUTPUT_DIR,'/lda coefficients.csv'), sep=",")
+##########################################
+# Ordered Logistic Regression using PC's #
+##########################################
+m <- polr(pca_data$difficulty ~ ., data=pca_data, Hess=TRUE)
+summary(m)
+(ctable <- coef(summary(m)))
+p <- pnorm(abs(ctable[, "t value"]), lower.tail=FALSE) * 2
+(ctable <- cbind(ctable, "p vlaue" = p))
+(ci <- confint(m))
+# neither of the PC's CI crosses 0, so the parameter estimate is statistically 
+# significant
+confint.default(m)
+# For a one unit increase in PC1, we expect a 0.094 decrease in the expected
+# value of difficulty on the log odds scale, given PC2 is held constant.
+# For a one unit increase in PC2, we expect a 0.266 decrease in the expected
+# value of difficulty on the log odds scale, given PC1 is held constant.
+## odds ratios
+exp(coef(m))
+## OR and CI
+exp(cbind(OR = coef(m), ci))
+# For a one unit increase in PC1, the odds of "1" difficulty versus "2", "3", 
+# "4", or "5" combined are 0.911 times greater, given that PC2 is held constant.
+# Likewise, the odds "1" difficulty or "2" or "3" or "4" versus "5" difficulty
+# is 0.911 times greater, given PC2 is held constant. 
 
 # make predictions
-plda <- predict(lda)
-
-# how well do the histograms separate?
-png(concat(IMAGES_DIR,'/LD1 Histogram.png'), 
-    width = 1024, height = 1024)
-ldahist(data=plda$x[,1], g=pca_data$difficulty)
-dev.off()
-png(concat(IMAGES_DIR,'/LD2 Histogram.png'), 
-    width = 1024, height = 1024)
-ldahist(data=plda$x[,2], g=pca_data$difficulty)
-dev.off()
-
-# how many of each class?
-load_package('dplyr')
-grouped_by_difficulty <- group_by(pca_data[,2:3],pca_data$difficulty)
-summarise(grouped_by_difficulty, n=n())
+predicted <- predict(m)
 
 # Confusion Matrix:
-confusion_matrix <- table(plda$class, pca_data$difficulty)
+confusion_matrix <- table(D$difficulty,predicted)
 write.table(confusion_matrix, 
             file=concat(OUTPUT_DIR,'/confusion matrix.csv'), sep=",")
 # estimate the percentage of difficulty that will be mis-classified
 round(1 - diag(prop.table(confusion_matrix)), 4)
 # total percent incorrect
 round(1 - sum(diag(prop.table(confusion_matrix))), 4)
-# cross-validation with leave-one-out
-lda_cv <- lda(formula=pca_data$difficulty ~ ., data=pca_data, CV=TRUE)
-# Confusion Matrix:
-confusion_matrix_cv <- table(lda_cv$class, pca_data$difficulty)
-write.table(confusion_matrix_cv, 
-            file=concat(OUTPUT_DIR,'/confusion matrix leave one out.csv'), sep=",")
-# estimate the percentage that will be mis-classified
-round(1 - diag(prop.table(confusion_matrix_cv)), 4)
-# total percent incorrect
-round(1 - sum(diag(prop.table(confusion_matrix_cv))), 4)
 
 # Calculate Wilk's Lambda
 # It also gives us the group centroids
 load_package('rrcov')
-Wilks.test(plda$x,pca_data$difficulty)
+Wilks.test(D_norm[,6:33], grouping=D_norm$D.difficulty)
 
 # plot the LDA projection
 prop.lda = lda$svd^2/sum(lda$svd^2)
@@ -311,7 +297,6 @@ df <- data.frame(class, x, y)
 centroids <- aggregate(cbind(x,y)~class,df,mean)
 prop.lda = lda$svd^2/sum(lda$svd^2)
 load_package("ggplot2")
-load_package("scales")
 png(concat(IMAGES_DIR,'/lda plot.png'), 
     width = 1024, height = 1024)
 ggplot(df,aes(x,y,color=factor(class),shape=factor(class))) +
@@ -323,13 +308,28 @@ ggplot(df,aes(x,y,color=factor(class),shape=factor(class))) +
   theme(plot.title = element_text(lineheight=.8, face="bold"))
 dev.off()
 
-# territorial map
-load_package("klaR")
-partimat(class ~ y + x,
-         data=pca_data[,2:3],
-         method="lda",
-         main="Data Partitioned by Class")
+# graphical interpretation
+load_package('Hmisc')
+sf <- function(y) {
+  c('Y>=1' = qlogis(mean(y >= 1)),
+    'Y>=2' = qlogis(mean(y >= 2)),
+    'Y>=3' = qlogis(mean(y >= 3)),
+    'Y>=4' = qlogis(mean(y >= 4)),
+    'Y>=5' = qlogis(mean(y >= 5)))
+}
+(s <- with(pca_data, summary(as.numeric(difficulty) ~ PC1 + PC2, fun=sf)))
 
+# compare the GLM
+glm(I(as.numeric(difficulty) >= 2) ~ PC1, family = 'binomial', data=pca_data)
+glm(I(as.numeric(difficulty) >= 3) ~ PC1, family = 'binomial', data=pca_data)
+glm(I(as.numeric(difficulty) >= 4) ~ PC1, family = 'binomial', data=pca_data)
+glm(I(as.numeric(difficulty) >= 5) ~ PC1, family = 'binomial', data=pca_data)
+
+s[,6] <- s[,6] - s[,3]
+s[,5] <- s[,3] - s[,3]
+s
+plot(s, which=1:5, pch=1:5, xlab='logit', main = ' ', xlim=range(s[,5:6]))
+  
 ###############################
 # K-Means Clustering Analysis #
 ###############################
@@ -341,7 +341,7 @@ png(concat(IMAGES_DIR,'/wss to pick number of clusters.png'),
 plot(1:15, wss, type="b", xlab="Number of Clusters",
      ylab="Within groups sum of squares")
 dev.off()
-# K-Means Cluster Analysis for k=5 on original data
+# K-Means Cluster Analysis for k=5
 fit5 <- kmeans(D_norm[,6:33], 5) # 5 cluster solution
 
 # cluster plot with ellipses
@@ -396,11 +396,11 @@ d <- dist(D_norm[,6:33], method="euclidean")
 # are squared before cluster updating.
 fit <- hclust(d, method="ward.D2")
 load_package("sparcl")
-png(concat(IMAGES_DIR,'/dendrogram.png'), 
+png(concat(IMAGES_DIR,'/dendrogram - difficulty.png'), 
     width = 1024, height = 512)
 ColorDendrogram(fit, 
-                y = fit5$cluster, 
-                main = "Hierarchical Clustering", 
+                y = D$difficulty, 
+                main = "Hierarchical Clustering (Colors are Difficulty Score)", 
                 xlab = "Euclidean Distance",
                 sub = "with Ward D2 Clustering",
                 branchlength = 50)
@@ -408,73 +408,26 @@ ColorDendrogram(fit,
 rect.hclust(fit, k=5, border="red")
 dev.off()
 
+png(concat(IMAGES_DIR,'/dendrogram - inst.png'), 
+    width = 1024, height = 512)
+ColorDendrogram(fit, 
+                y = D$instr, 
+                main = "Hierarchical Clustering (Colors are Instructor)", 
+                xlab = "Euclidean Distance",
+                sub = "with Ward D2 Clustering",
+                branchlength = 50)
+# draw red borders around the 3 clusters 
+rect.hclust(fit, k=3, border="red")
+dev.off()
 
-####################################
-# Support Vector Machines          #
-####################################
-## split data into a train and test set
-index <- 1:nrow(D_norm)
-set.seed(12345789)
-testindex <- sample(index, trunc(length(index)/3))
-testset <- D_norm[testindex,]
-trainset <- D_norm[-testindex,]
-
-## svm
-load_package("e1071")
-svm.model <- svm(D.difficulty ~ ., data=trainset[,5:33], cost=100, gamma=1)
-svm.pred <- predict(svm.model, testset[,6:33])
-## compute svm confusion matrix
-table(pred = svm.pred, true = testset$D.difficulty)
-
-
-##########################################
-# Ordered Logistic Regression using LD's #
-##########################################
-m <- polr(lda_data$y ~ ., data=lda_data, Hess=TRUE)
-summary(m)
-(ctable <- coef(summary(m)))
-p <- pnorm(abs(ctable[, "t value"]), lower.tail=FALSE) * 2
-(ctable <- cbind(ctable, "p vlaue" = p))
-(ci <- confint(m))
-# neither of the LD's CI crosses 0, so the parameter estimate is statistically 
-# significant
-confint.default(m)
-# For a one unit increase in LD1, we expect a 0.16 increase in the expected
-# value of difficulty on the log odds scale, given LD2 is held constant.
-# For a one unit increase in LD2, we expect a 0.05 decrease in the expected
-# value of difficulty on the log odds scale, given LD1 is held constant.
-## odds ratios
-exp(coef(m))
-## OR and CI
-exp(cbind(OR = coef(m), ci))
-# For a one unit increase in LD1, the odds of "1" difficulty versus "2", "3", 
-# "4", or "5" combined are 1.17 times greater, given that LD2 is held constant.
-# Likewise, the odds "1" difficulty or "2" or "3" or "4" versus "5" difficulty
-# is 1.17 times greater, given LD2 is held constant. 
-
-
-####################################################
-# Ordered Logistic Regression using normalized Q's #
-####################################################
-m <- polr(as.factor(D_norm$D.difficulty) ~ ., data=D_norm[,5:33], Hess=TRUE)
-summary(m)
-(ctable <- coef(summary(m)))
-p <- pnorm(abs(ctable[, "t value"]), lower.tail=FALSE) * 2
-(ctable <- cbind(ctable, "p vlaue" = p))
-(ci <- confint(m))
-# neither of the LD's CI crosses 0, so the parameter estimate is statistically 
-# significant
-confint.default(m)
-# For a one unit increase in LD1, we expect a 0.16 increase in the expected
-# value of difficulty on the log odds scale, given LD2 is held constant.
-# For a one unit increase in LD2, we expect a 0.05 decrease in the expected
-# value of difficulty on the log odds scale, given LD1 is held constant.
-## odds ratios
-exp(coef(m))
-## OR and CI
-exp(cbind(OR = coef(m), ci))
-# For a one unit increase in LD1, the odds of "1" difficulty versus "2", "3", 
-# "4", or "5" combined are 1.17 times greater, given that LD2 is held constant.
-# Likewise, the odds "1" difficulty or "2" or "3" or "4" versus "5" difficulty
-# is 1.17 times greater, given LD2 is held constant. 
-
+png(concat(IMAGES_DIR,'/dendrogram - attendance.png'), 
+    width = 1024, height = 512)
+ColorDendrogram(fit, 
+                y = D$attendance, 
+                main = "Hierarchical Clustering (Colors are Attendance)", 
+                xlab = "Euclidean Distance",
+                sub = "with Ward D2 Clustering",
+                branchlength = 50)
+# draw red borders around the 3 clusters 
+rect.hclust(fit, k=3, border="red")
+dev.off()
