@@ -1,3 +1,13 @@
+temp <- concat(OUTPUT_DIR,'/attendance_norm.rda')
+if (length(grep('attandence', ls()))==0) {
+  if (!file.exists(temp)) {
+    attendance_norm <- ordinalToMetric(as.matrix(D$attendance), 
+                               scaleType = "o", 
+                               patternCoordinates = 4)
+    save(attendance_norm, file=temp)
+  }
+  load(temp)
+}
 temp <- concat(OUTPUT_DIR,'/Q1_norm.rda')
 if (length(grep('Q1_norm', ls()))==0) {
   if (!file.exists(temp)) {
@@ -283,7 +293,7 @@ if (length(grep('Q28_norm', ls()))==0) {
 D_norm <- data.frame(D$instr,
                      D$class,
                      D$nb.repeat,
-                     D$attendance,
+                     attendance_norm,
                      D$difficulty,
                      Q1_norm,
                      Q2_norm,
@@ -321,6 +331,7 @@ if (length(grep('D_norm', ls()))==0) {
   load(temp)
 }
 rm(temp)
+rm(attendance_norm)
 rm(Q1_norm)
 rm(Q2_norm)
 rm(Q3_norm)

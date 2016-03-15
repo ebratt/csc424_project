@@ -108,7 +108,19 @@ load_package <- function(x) {
   library(x, character.only=TRUE)
 }
 
-# get the data
+## load required packages
+load_package('dplyr')
+load_package('clusterSim')
+load_package('corrplot')
+load_package('MASS')
+load_package('Hmisc')
+load_package("cluster")
+load_package("fpc")
+load_package("sparcl")
+load_package('GGally')
+load_package('CCA')
+
+## get the data
 # check to see if data is already downloaded
 # if not, download it and save it to the data directory
 csv_file <- concat(DATA_DIR, '/turkiye-student-evaluation_R_Specific.csv')
@@ -133,14 +145,7 @@ length(which(D == ""))
 length(which(!complete.cases(D)))
 str(D)
 
-
-# make factors from instr, class, and attendance
-D[,1] <- as.factor(D[,1])
-D[,2] <- as.factor(D[,2])
-D[,4] <- as.factor(D[,4])
-
 # group data by instructor
-load_package('dplyr')
 p <- length(D[,1])
 grouped <- group_by(D, as.factor(D$instr))
 grouped_summary <- data.frame(summarise(grouped, n=n()))
@@ -148,7 +153,10 @@ grouped_summary$pct <- grouped_summary$n / p
 print(grouped_summary)
 rm(p)
 rm(grouped_summary)
+png(concat(IMAGES_DIR,'/hist - instr.png'), 
+    width = 1024, height = 1024)
 hist(as.numeric(D$instr), breaks=10, col="red", xlab="ID", main="Instructor Histogram") 
+dev.off()
 
 # group data by difficulty
 p <- length(D[,1])
@@ -158,7 +166,10 @@ grouped_summary$pct <- grouped_summary$n / p
 print(grouped_summary)
 rm(p)
 rm(grouped_summary)
+png(concat(IMAGES_DIR,'/hist - difficulty.png'), 
+    width = 1024, height = 1024)
 hist(D$difficulty, breaks=10, col="red", xlab="Score", main="Difficulty Histogram") 
+dev.off()
 
 # difficulty, cross-tabbed with instructor
 ft <- function(var) {
@@ -176,7 +187,32 @@ print(grouped_summary)
 rm(p)
 rm(grouped)
 rm(grouped_summary)
+png(concat(IMAGES_DIR,'/hist - class.png'), 
+    width = 1024, height = 1024)
 hist(as.numeric(D$class), breaks=10, col="red", xlab="ID", main="Class Histogram") 
+dev.off()
+
+# group data by attendance
+p <- length(D[,1])
+grouped <- group_by(D, as.factor(D$attendance))
+grouped_summary <- data.frame(summarise(grouped, n=n()))
+grouped_summary$pct <- grouped_summary$n / p
+print(grouped_summary)
+rm(p)
+rm(grouped)
+rm(grouped_summary)
+png(concat(IMAGES_DIR,'/hist - attendance.png'), 
+    width = 1024, height = 1024)
+hist(as.numeric(D$attendance), breaks=10, col="red", xlab="ID", main="Attendance Histogram") 
+dev.off()
+hist(as.numeric(D$attendance), breaks=10, col="red", xlab="ID", main="Attendance Histogram")
+
+# difficulty, cross-tabbed with attendance
+ft <- function(var) {
+  ftable(xtabs(~D$attendance + var, data=D))
+}
+lapply(D[,2:5], ft)
+rm(ft)
 
 # difficulty, cross-tabbed with class
 ft <- function(var) {
@@ -198,12 +234,121 @@ rm(ft)
 
 ## Use clusterSim package to normalize the question data
 # store the data in D_norm
-citation(package = "clusterSim", lib.loc = NULL, auto = NULL)
-load_package('clusterSim')
 source('ConvertAndBackup.R')
+str(D_norm)
+
+## before performing PCA, run step-wise selection based on AIC
+full_glm_data <- D_norm[,-c(1,2,3,5)]
+load(concat(OUTPUT_DIR, '/difficulty_norm.rda'))
+load(concat(OUTPUT_DIR, '/attendance_norm.rda'))
+difficulty_norm <- Q1_norm
+full_glm_data$attendance_norm <- attendance_norm
+rm(Q1_norm)
+full_glm <- glm(difficulty_norm ~ ., data=full_glm_data)
+summary(full_glm)
+base_glm <- glm(difficulty_norm ~ 1)
+summary(base_glm)
+step <- step(object=full_glm, 
+             scope=list(lower=formula(base_glm),
+                        upper=formula(full_glm)),
+             direction="both",trace=0)
+step$formula
+step$anova
+
+## build a reduced polyr model based on the selected variables
+#############################################################
+# Ordered Logistic Regression using reduced model variables #
+#############################################################
+load(concat(OUTPUT_DIR, '/attendance_norm.rda'))
+m_data <- data.frame(D_norm$D.difficulty,
+                     attendance_norm,
+                     D_norm$Q1_norm,
+                     D_norm$Q3_norm,
+                     D_norm$Q5_norm,
+                     D_norm$Q8_norm,
+                     D_norm$Q9_norm,
+                     D_norm$Q11_norm,
+                     D_norm$Q16_norm,
+                     D_norm$Q17_norm,
+                     D_norm$Q18_norm,
+                     D_norm$Q22_norm,
+                     D_norm$Q24_norm,
+                     D_norm$Q26_norm)
+m <- polr(as.factor(m_data$D_norm.D.difficulty) ~ ., 
+          method='logistic',
+          data=m_data, 
+          Hess=TRUE)
+summary(m)
+## chi-square test for goodness of fit suggests its not a good fit
+1-pchisq(deviance(m),df.residual(m))
+(ctable <- coef(summary(m)))
+p <- pnorm(abs(ctable[, "t value"]), lower.tail=FALSE) * 2
+(ctable <- cbind(ctable, "p vlaue" = p))
+(ci <- exp(MASS:::confint.polr(m)))
+# none of the varaibles' CI crosses 0, so the parameter estimate is  
+# statistically significant
+## odds ratios
+exp(coef(m))
+## OR and CI
+exp(cbind(OR = coef(m), ci))
+rm(ci)
+rm(ctable)
+
+## make predictions
+predicted <- predict(m)
+table(predicted)
+
+## Confusion Matrix:
+(confusion_matrix <- table(predicted, D[,5]))
+# estimate the percentage of difficulties that will be classified correctly
+round(diag(prop.table(confusion_matrix)), 4)
+# total percent incorrect
+round(1 - sum(diag(prop.table(confusion_matrix))), 4)
+
+# graphical interpretation
+sf <- function(y) {
+  c('Y>=1' = qlogis(mean(y >= 1)),
+    'Y>=2' = qlogis(mean(y >= 2)),
+    'Y>=3' = qlogis(mean(y >= 3)),
+    'Y>=4' = qlogis(mean(y >= 4)),
+    'Y>=5' = qlogis(mean(y >= 5)))
+}
+(s <- with(m_data, summary(as.numeric(D_norm.D.difficulty) ~ 
+                             attendance_norm + 
+                             D_norm$Q1_norm + 
+                             D_norm$Q3_norm + 
+                             D_norm$Q5_norm + 
+                             D_norm$Q8_norm + 
+                             D_norm$Q9_norm + 
+                             D_norm$Q11_norm + 
+                             D_norm$Q16_norm + 
+                             D_norm$Q17_norm + 
+                             D_norm$Q18_norm + 
+                             D_norm$Q22_norm + 
+                             D_norm$Q24_norm + 
+                             D_norm$Q26_norm, fun=sf)))
+
+# compare the GLM
+glm(I(as.numeric(m_data$D_norm.D.difficulty) >= 2) ~ attendance_norm, family = 'binomial', data=m_data)
+glm(I(as.numeric(m_data$D_norm.D.difficulty) >= 3) ~ attendance_norm, family = 'binomial', data=m_data)
+glm(I(as.numeric(m_data$D_norm.D.difficulty) >= 4) ~ attendance_norm, family = 'binomial', data=m_data)
+glm(I(as.numeric(m_data$D_norm.D.difficulty) >= 5) ~ attendance_norm, family = 'binomial', data=m_data)
+
+s[,6] <- s[,6] - s[,3]
+s[,5] <- s[,3] - s[,3]
+s
+
+png(concat(IMAGES_DIR,'/distances.png'), 
+    width = 1024, height = 1024)
+plot(s, which=1:5, pch=1:5, xlab='logit', main = ' ', xlim=range(s[,5:6]))
+dev.off()
+
+################################
+# Principal Component Analysis #
+################################
+## are the variables correlated?
 # look at correlations
-write.csv(cor(D_norm[,6:33]), file=concat(OUTPUT_DIR, '/correlations.csv'))
-load_package('corrplot')
+write.csv(cor(m_data[,-1]), file=concat(OUTPUT_DIR, '/correlations.csv'))
 col1 <- colorRampPalette(c("#7F0000", "red", "#FF7F00", "yellow", "white", "cyan", 
                            "#007FFF", "blue", "#00007F"))
 col2 <- colorRampPalette(c("#67001F", "#B2182B", "#D6604D", "#F4A582", "#FDDBC7", 
@@ -212,17 +357,15 @@ col3 <- colorRampPalette(c("red", "white", "blue"))
 col4 <- colorRampPalette(c("#7F0000", "red", "#FF7F00", "yellow", "#7FFF7F", 
                            "cyan", "#007FFF", "blue", "#00007F"))
 wb <- c("white", "black")
-png(concat(IMAGES_DIR,'/correlations 1.png'), 
+png(concat(IMAGES_DIR,'/correlations.png'), 
     width = 1024, height = 1024)
-corrplot(cor(D_norm[,6:33]), order="hclust", addrect = 5, col=col4(10))
+corrplot(cor(m_data[,-1]), order="hclust", addrect = 3, col=col4(10))
 dev.off()
 
-################################
-# Principal Component Analysis #
-################################
-pca <- prcomp(D_norm[,6:33])
+pca <- prcomp(m_data[,-c(1,2)])
 summary(pca)
-# between 5 and 6 PC's make-up 90% of the cumulative variance
+# the PC's are dominated by the attendance variable
+# 2 PC's make up 85% of the variance
 
 # variance charts
 # from http://rstudio-pubs-static.s3.amazonaws.com/27823_dbc155ba66444eae9eb0a6bacb36824f.html
@@ -263,6 +406,10 @@ pca_data <- data.frame(difficulty=as.factor(D_norm$D.difficulty), PC1=pca$x[,1],
 ##########################################
 m <- polr(pca_data$difficulty ~ ., data=pca_data, Hess=TRUE)
 summary(m)
+
+## chi-square test for goodness of fit suggests its not a good fit
+1-pchisq(deviance(m),df.residual(m))
+
 (ctable <- coef(summary(m)))
 p <- pnorm(abs(ctable[, "t value"]), lower.tail=FALSE) * 2
 (ctable <- cbind(ctable, "p vlaue" = p))
@@ -270,24 +417,15 @@ p <- pnorm(abs(ctable[, "t value"]), lower.tail=FALSE) * 2
 # neither of the PC's CI crosses 0, so the parameter estimate is statistically 
 # significant
 confint.default(m)
-# For a one unit increase in PC1, we expect a 0.094 decrease in the expected
-# value of difficulty on the log odds scale, given PC2 is held constant.
-# For a one unit increase in PC2, we expect a 0.266 decrease in the expected
-# value of difficulty on the log odds scale, given PC1 is held constant.
 ## odds ratios
 exp(coef(m))
 ## OR and CI
 exp(cbind(OR = coef(m), ci))
-# For a one unit increase in PC1, the odds of "1" difficulty versus "2", "3", 
-# "4", or "5" combined are 0.911 times greater, given that PC2 is held constant.
-# Likewise, the odds "1" difficulty or "2" or "3" or "4" versus "5" difficulty
-# is 0.911 times greater, given PC2 is held constant. 
 
 # make predictions
 predicted <- predict(m)
 
 # graphical interpretation
-load_package('Hmisc')
 sf <- function(y) {
   c('Y>=1' = qlogis(mean(y >= 1)),
     'Y>=2' = qlogis(mean(y >= 2)),
@@ -307,7 +445,7 @@ s[,6] <- s[,6] - s[,3]
 s[,5] <- s[,3] - s[,3]
 s
 plot(s, which=1:5, pch=1:5, xlab='logit', main = ' ', xlim=range(s[,5:6]))
-  
+
 ###############################
 # K-Means Clustering Analysis #
 ###############################
@@ -323,7 +461,6 @@ dev.off()
 fit5 <- kmeans(D_norm[,6:33], 5) # 5 cluster solution
 
 # cluster plot with ellipses
-load_package("cluster")
 png(concat(IMAGES_DIR,'/cluster plot1.png'), 
     width = 1024, height = 1024)
 clusplot(D_norm[,6:33], 
@@ -336,7 +473,6 @@ clusplot(D_norm[,6:33],
 dev.off()
 
 # Centroid Plot against 1st 2 discriminant functions
-load_package("fpc")
 png(concat(IMAGES_DIR,'/cluster plot2.png'), 
     width = 1024, height = 1024)
 plotcluster(D_norm[,6:33], 
@@ -375,7 +511,6 @@ d <- dist(D_norm[,6:33], method="euclidean")
 fit <- hclust(d, method="ward.D2")
 groups <- cutree(fit, k=5)
 
-load_package("sparcl")
 png(concat(IMAGES_DIR,'/dendrogram - difficulty.png'), 
     width = 1024, height = 512)
 ColorDendrogram(fit, 
@@ -455,20 +590,19 @@ par(mfrow=c(1,1))
 #######
 # CCA #
 #######
+D_norm$attendance_norm <- D$attendance
 questions <- D_norm[,6:33]
 behavior <- D_norm[,3:5]
-behavior$D.attendance <- as.numeric(behavior$D.attendance)
 str(behavior)
-load_package('GGally')
-load_package('CCA')
+
 corrs <- matcor(behavior, questions)
 img.matcor(corrs, type=3)
 cc1 <- cc(behavior, questions)
 # Cannonical Correlations
 cc1$cor
 # Raw Canonical Coefficients
-cc1$xcoef
-cc1$ycoef
+write.csv(cc1$xcoef, concat(OUTPUT_DIR, '/cc1$xcoef.csv'))
+write.csv(cc1$ycoef, concat(OUTPUT_DIR, '/cc1$ycoef.csv'))
 # plot the canonical correlations of the first 3 dimensions
 plot(cc1$cor, xlab = "Dimension", 
      ylab = "Canonical Correlations",
